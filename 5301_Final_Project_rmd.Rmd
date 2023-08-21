@@ -1,0 +1,1412 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="10"><div style="text-align: center;"><b>
+NYDP Shooting Data Report
+</b></div></font></td></tr></table>
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;1. Introduction
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.1 Project Objective
+</b></font></td></tr></table>
+
+#### 1. Data Cleaning and Preprocessing: Ensure data quality and consistency by performing data cleaning tasks.
+#### 2. Timeline Trend Analysis: Explore temporal patterns to identify peaks and valleys during specific time intervals.
+#### 3. Geographical Distribution Analysis: Investigate case clusters in certain regions to understand spatial patterns.
+#### 4. Suspects & Victims Analysis: Examine profiles of involved individuals to uncover distinct features and trends.
+#### 5. Time Series Analysis and Forecasting: Examine seasonal patterns and project case counts for the next 3 years.
+ 
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.2 Data Source
+</b></font></td></tr></table>
+
+#### 1. This data is sourced from the official NYPD website and includes shooting records spanning from 2006 to 2022.
+#### 2. Each record depicts an occurrence of a shooting incident in New York City and encompasses details about the event, including its location, timestamp, and profiles of individuals involved.
+#### 3. The compilation of this data involves a manual extraction process conducted quarterly with a comprehensive review by the Office of Management Analysis and Planning. However, some degree of error might be present in the dataset.
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.3 Importing Packages
+</b></font></td></tr></table>
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(cowplot)
+library(ggthemes)
+library(forecast)
+library(knitr)
+library(data.table)
+library(leaflet)
+library(tinytex)
+library(kableExtra)
+library(gridExtra)
+library(dplyr)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.4 Importing Dataset
+</b></font></td></tr></table>
+
+```{r message=FALSE, warning=FALSE}
+file_path <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv"
+df1 <- read_csv(file_path)
+```
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;2. Data Cleaning and Preprocessing
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.1 Checking Data
+</b></font></td></tr></table>
+
+```{r}
+glimpse(df1)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.2 Selecting Attributes
+</b></font></td></tr></table>
+
+```{r}
+df2 <- df1 %>%
+  select(
+    -c("INCIDENT_KEY", "LOC_OF_OCCUR_DESC", "JURISDICTION_CODE", "LOC_CLASSFCTN_DESC", "LOCATION_DESC", 
+       "X_COORD_CD", "Y_COORD_CD", "Lon_Lat")
+    )
+glimpse(df2)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.3 Modifying Attribute Names
+</b></font></td></tr></table>
+
+```{r}
+df3 <- df2 %>%
+  rename(
+    Date = OCCUR_DATE,
+    Time = OCCUR_TIME,
+    Borough = BORO,
+    Precinct = PRECINCT,
+    Murder = STATISTICAL_MURDER_FLAG,
+    Perp_Age = PERP_AGE_GROUP,
+    Perp_Sex = PERP_SEX,
+    Perp_Race = PERP_RACE,
+    Vic_Age = VIC_AGE_GROUP,
+    Vic_Sex = VIC_SEX,
+    Vic_Race = VIC_RACE
+  )
+glimpse(df3)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.4 Adjusting the Time Format
+</b></font></td></tr></table>
+
+```{r message=FALSE, warning=FALSE}
+df4 <- df3 %>%
+  mutate(
+    Year = year(mdy(Date)), 
+    Month = month(mdy(Date)), 
+    Weekday = wday(mdy(Date)), 
+    Hour = hour(Time)
+  )
+glimpse(df4)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.5 Handling Missing Values and Errors
+</b></font></td></tr></table>
+
+```{r}
+df5 <- df4 %>%
+  mutate(
+    Borough = case_when(
+      Borough %in% c("STATEN ISLAND") ~ "STATEN ISL",
+      TRUE ~ as.character(Borough)
+    ),
+    Perp_Age = case_when(
+      Perp_Age %in% c("nan", "(null)", NA, "940", "224", "1020") ~ "UNKNOWN",
+      TRUE ~ as.character(Perp_Age)
+    ),
+    Perp_Sex = case_when(
+      Perp_Sex %in% c("nan", "(null)", NA, "U") ~ "UNKNOWN",
+      Perp_Sex == "F" ~ "FEMALE",
+      Perp_Sex == "M" ~ "MALE",
+      TRUE ~ as.character(Perp_Sex)
+    ),
+    Perp_Race = case_when(
+      Perp_Race %in% c("nan", "(null)", NA) ~ "UNKNOWN",
+      Perp_Race == "ASIAN / PACIFIC ISLANDER" ~ "ASIAN",
+      Perp_Race == "AMERICAN INDIAN/ALASKAN NATIVE" ~ "UNKNOWN",
+      Perp_Race == "BLACK HISPANIC" ~ "BHISPANIC",
+      Perp_Race == "WHITE HISPANIC" ~ "WHISPANIC",
+      TRUE ~ as.character(Perp_Race)
+    ),
+    Vic_Age = case_when(
+      Vic_Age == "1022" ~ "UNKNOWN",
+      TRUE ~ as.character(Vic_Age)
+    ),
+    Vic_Sex = case_when(
+      Vic_Sex %in% c("nan", "(null)", "U") ~ "UNKNOWN",
+      Vic_Sex == "F" ~ "FEMALE",
+      Vic_Sex == "M" ~ "MALE",
+      TRUE ~ as.character(Vic_Sex)
+    ),
+    Vic_Race = case_when(
+      Vic_Race %in% c("nan", "(null)") ~ "UNKNOWN",
+      Vic_Race == "ASIAN / PACIFIC ISLANDER" ~ "ASIAN",
+      Vic_Race == "AMERICAN INDIAN/ALASKAN NATIVE" ~ "UNKNOWN",
+      Vic_Race == "BLACK HISPANIC" ~ "BHISPANIC",
+      Vic_Race == "WHITE HISPANIC" ~ "WHISPANIC",
+      TRUE ~ as.character(Vic_Race)
+    )
+  )
+```
+
+```{r}
+df5 <- df5[!is.na(df4$Latitude) & !is.na(df4$Longitude),]
+
+df5$Borough  <- factor(df5$Borough)
+df5$Precinct <- factor(df5$Precinct)
+df5$Perp_Age <- factor(df5$Perp_Age)
+df5$Perp_Sex <- factor(df5$Perp_Sex)
+df5$Perp_Race <- factor(df5$Perp_Race)
+df5$Vic_Age <- factor(df5$Vic_Age)
+df5$Vic_Sex <- factor(df5$Vic_Sex)
+df5$Vic_Race <- factor(df5$Vic_Race)
+glimpse(df5)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.6 Removing Duplicates
+</b></font></td></tr></table>
+
+```{r}
+any(duplicated(df5))
+```
+
+#### **Summary:**
+#### 1. After cleaning the data, we now have 27,302 relatively complete case records ready for analysis.
+#### 2. Near 50% of the perpetrator information is missing, likely because of limitations in the cases.
+#### 3. The records related to time, location, and victims are quite complete, indicating the overall data quality is good.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;3. Timeline Trend Analysis
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.1 Exploring Time Distribution
+</b></font></td></tr></table>
+
+#### Shootings per Year:
+
+```{r}
+shootings_year <- df5 %>%
+  group_by(Year) %>%
+  summarise(Counts = n())
+
+# average shootings per year
+avg_year <- shootings_year %>%
+  summarise(Counts = mean(Counts), Year = "")
+
+# top and bottom years
+high_years <- shootings_year %>%
+  top_n(6, wt = Counts) %>%
+  arrange(desc(Counts)) %>%
+  mutate(Year = as.character(Year))
+
+low_years <- shootings_year %>%
+  top_n(-6, wt = Counts) %>%
+  arrange(desc(Counts)) %>%
+  mutate(Year = as.character(Year))
+
+# Combine
+combined_df <- bind_rows(data.frame(Group = "Highest", high_years),
+                          data.frame(Group = "Average", avg_year), 
+                          data.frame(Group = "Lowest", low_years)
+)
+
+# kableExtra
+year_table <- combined_df %>%
+  knitr::kable(format = "html", escape = FALSE, digits = 0) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  column_spec(1:3, width = "8em") %>%
+  row_spec(0:0, align = "c", bold = TRUE, color = "white", background = "brown") %>%
+  row_spec(1:6, align = "c", bold = TRUE, color = "red") %>%
+  row_spec(7:7, align = "c", bold = TRUE, color = "white", background = "grey") %>%
+  row_spec(8:13, align = "c", bold = TRUE, color = "green")
+year_table
+```
+
+#### Shootings per Month:
+
+```{r}
+df6 <- df5 %>%
+  mutate(Month = paste(Year, Month, sep = "-"))
+shootings_month <- df6 %>%
+  group_by(Month) %>%
+  summarise(Counts = n())
+
+# average shootings per year-month
+avg_month <- shootings_month %>%
+  summarise(Counts = mean(Counts), Month = "")
+
+# top and bottom months
+high_months <- shootings_month %>%
+  top_n(6, wt = Counts) %>%
+  arrange(desc(Counts))
+
+low_months <- shootings_month %>%
+  top_n(-6, wt = Counts) %>%
+  arrange(desc(Counts))
+
+# Combine
+combined_df_month <- bind_rows(data.frame(Group = "Highest", high_months),
+                                data.frame(Group = "Average", avg_month), 
+                                data.frame(Group = "Lowest", low_months)
+)
+
+# kableExtra
+month_table <- combined_df_month %>%
+  knitr::kable(format = "html", escape = FALSE, digits = 0) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  column_spec(1:3, width = "8em") %>%
+  row_spec(0:0, align = "c", bold = TRUE, color = "white", background = "brown") %>%
+  row_spec(1:6, align = "c", bold = TRUE, color = "red") %>%
+  row_spec(7:7, align = "c", bold = TRUE, color = "white", background = "grey") %>%
+  row_spec(8:13, align = "c", bold = TRUE, color = "green")
+month_table
+```
+
+#### Shootings per Day:
+
+```{r}
+shootings_day <- df5 %>%
+  group_by(Date) %>%
+  summarise(Counts = n())
+
+# average shootings per day
+avg_day <- shootings_day %>%
+  summarise(Counts = mean(Counts), Date = "")
+
+# top and bottom days
+high_days <- shootings_day %>%
+  top_n(6, wt = Counts) %>%
+  arrange(desc(Counts))
+low_days <- shootings_day %>%
+  arrange(Counts) %>%
+  filter(Counts == min(Counts)) %>%
+  sample_n(6)
+
+# Combine
+combined_df_day <- bind_rows(data.frame(Group = "Highest", high_days),
+                              data.frame(Group = "Average", avg_day), 
+                              data.frame(Group = "Lowest", low_days)
+)
+
+# kableExtra
+day_table <- combined_df_day %>%
+  knitr::kable(format = "html", escape = FALSE, digits = 0) %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+  column_spec(1:3, width = "8em") %>%
+  row_spec(0:0, align = "c", bold = TRUE, color = "white", background = "brown") %>%
+  row_spec(1:6, align = "c", bold = TRUE, color = "red") %>%
+  row_spec(7:7, align = "c", bold = TRUE, color = "white", background = "grey") %>%
+  row_spec(8:13, align = "c", bold = TRUE, color = "green")
+day_table
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.2 Comparison of Shootings Across Different Timeline Intervals
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1 - Year
+Year_counts <- df5 %>%
+  group_by(Year) %>%
+  summarise(Counts = n())
+# Relabel not use
+Year_x <- c('2006', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '2022')
+Yearly <- ggplot(Year_counts, aes(Year, Counts)) +
+  geom_line(linewidth = 4, color = "black") +
+  geom_point(size = 6, shape = 15, color = "red") +
+  labs(title = " Shootings Across Yearly ",
+       x = "Yearly",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(2006, 2022, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 2500, by = 400), limits = c(0, 2500)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    )
+
+# Plot2 - Month
+Month_counts <- df5 %>%
+  group_by(Month) %>%
+  summarise(Counts = n())
+# Relabel
+Month_x <- c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+Monthly <- ggplot(Month_counts, aes(Month, Counts)) +
+  geom_line(linewidth = 4, color = "black") +
+  geom_point(size = 6, shape = 15, color = "red") +
+  labs(title = " Shootings Across Monthly ",
+       x = " Monthly ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(1, 12, by = 1), labels = Month_x) +
+  scale_y_continuous(breaks = seq(0, 3500, by = 500), limits = c(0, 3500)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    )
+
+# Plot3 - Weekday
+Weekday_counts <- df5 %>%
+  group_by(Weekday) %>%
+  summarise(Counts = n())
+# Relabel
+Weekday_x <- c('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')
+Daily <- ggplot(Weekday_counts, aes(Weekday, Counts)) +
+  geom_line(linewidth = 4, color = "black") +
+  geom_point(size = 6, shape = 15, color = "red") +
+  labs(title = " Shootings Across Daily ",
+       x = " Daily ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(1, 7, by = 1), labels = Weekday_x) +
+  scale_y_continuous(breaks = seq(0, 6000, by = 1000), limits = c(0, 6000)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    )
+
+# Plot4 - Hour
+Hour_counts <- df5 %>%
+  group_by(Hour) %>%
+  summarise(Counts = n())
+Hourly <- ggplot(Hour_counts, aes(Hour, Counts)) +
+  geom_line(linewidth = 4, color = "black") +
+  geom_point(size = 6, shape = 15, color = "red") +
+  labs(title = " Shootings Across Hourly ",
+       x = " Hourly ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(0, 23, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 2400, by = 400), limits = c(0, 2400)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    )
+
+# Title
+Time_Title <- ggplot() +
+  ggtitle("Comparison of Shootings Across Different Time Intervals") +
+  labs(subtitle = 
+  " - Peaks and valleys are significant across various time intervals
+ - Summer, weekends, and midnights are obviously higher than others") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+Time_Plots <- plot_grid(Yearly, Monthly, Daily, Hourly, ncol=2, nrow = 2)
+plot_grid(Time_Title, Time_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.3 Comparison Across Different Time Intervals by Boroughs
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1 - Year
+Year_counts <- df5 %>%
+  group_by(Year, Borough) %>%
+  summarise(Counts = n(), .groups = "drop")
+# Relabel not use
+Year_x <- c('2006', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '2022')
+Yearly_B <- ggplot(Year_counts, aes(Year, Counts), color = Borough) +
+  geom_line(linewidth = 1.5, aes(color = Borough)) +
+  geom_point(size = 3, shape = 15, aes(color = Borough)) +
+  labs(title = " Shootings Across Yearly ",
+       x = " Yearly ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(2006, 2022, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 1000, by = 200), limits = c(0, 900)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 0),
+    plot.subtitle = element_text(color = "red")
+  ) +
+  scale_fill_discrete(breaks = c("BROOKLYN", "BRONX", "QUEENS", "MANHATTAN", "STATEN ISL"))
+
+# Plot2 - Month
+Month_counts <- df5 %>%
+  group_by(Month, Borough) %>%
+  summarise(Counts = n(), .groups = "drop")
+# Relabel
+Month_x <- c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+Monthly_B <- ggplot(Month_counts, aes(Month, Counts), color = Borough) +
+  geom_line(linewidth = 1.5, aes(color = Borough)) +
+  geom_point(size = 3, shape = 15, aes(color = Borough)) +
+  labs(title = " Shootings Across Monthly ",
+       x = " Monthly ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(1, 12, by = 1), labels = Month_x) +
+  scale_y_continuous(breaks = seq(0, 1400, by = 200), limits = c(0, 1500)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 0),
+    plot.subtitle = element_text(color = "red")
+  ) +
+  scale_fill_discrete(breaks = c("BROOKLYN", "BRONX", "QUEENS", "MANHATTAN", "STATEN ISL"))
+
+# Plot3 - Weekday
+Weekday_counts <- df5 %>%
+  group_by(Weekday, Borough) %>%
+  summarise(Counts = n(), .groups = "drop")
+# Relabel
+Weekday_x <- c('Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')
+Daily_B <- ggplot(Weekday_counts, aes(Weekday, Counts), color = Borough) +
+  geom_line(linewidth = 1.5, aes(color = Borough)) +
+  geom_point(size = 3, shape = 15, aes(color = Borough)) +
+  labs(title = " Shootings Across Daily",
+       x = " Daily ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(1, 7, by = 1), labels = Weekday_x) +
+  scale_y_continuous(breaks = seq(0, 2200, by = 300), limits = c(0, 2200)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 0),
+    plot.subtitle = element_text(color = "red")
+  ) +
+  scale_fill_discrete(breaks = c("BROOKLYN", "BRONX", "QUEENS", "MANHATTAN", "STATEN ISL"))
+
+# Plot4 - Hour
+Hour_counts <- df5 %>%
+  group_by(Hour, Borough) %>%
+  summarise(Counts = n(), .groups = "drop")
+Hourly_B <- ggplot(Hour_counts, aes(Hour, Counts), color = Borough) +
+  geom_line(linewidth = 1.5, aes(color = Borough)) +
+  geom_point(size = 3, shape = 15, aes(color = Borough)) +
+  labs(title = " Shootings Across Hourly ",
+       x = " Hourly ",
+       y = " Total Shootings ") +
+  scale_x_continuous(breaks = seq(0, 23, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 900, by = 300), limits = c(0, 1000)) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 0),
+    plot.subtitle = element_text(color = "red")
+  ) +
+  scale_fill_discrete(breaks = c("BROOKLYN", "BRONX", "QUEENS", "MANHATTAN", "STATEN ISL"))
+
+# Title
+Time_B_Title <- ggplot() +
+  ggtitle("Comparison Across Different Time Intervals by Boroughs") +
+  labs(subtitle = 
+  " - Boroughs Display Similar Trends Across Different Time Intervals
+ - Brooklyn and Bronx Show Larger Peaks and Valleys Disparities") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+Time_B_Plots <- plot_grid(Yearly_B, Monthly_B, Daily_B, Hourly_B, ncol=2, nrow = 2)
+plot_grid(Time_B_Title, Time_B_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+#### **Summary:**
+#### 1. The overall trend shows a decline from 2006 to 2019, followed by a significant boost in the past three years.
+#### 2. Cases are notably higher during summer, weekends, and midnight hours compared to other time periods.
+#### 3. Boroughs exhibit consistent trends, with Brooklyn and Bronx displaying larger differences in peaks and valleys.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;4. Geographical Distribution Analysis
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;4.1 Comparison of Shootings Across Different Boroughs (2006'~2022')
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16, warning=TRUE}
+Borough <- ggplot(df5, aes(Borough)) +
+  geom_bar(aes(fill = Borough)) +
+  ylab(" Total Shootings ") +
+  xlab(" Boroughs ") +
+  scale_y_continuous(breaks = seq(0, 12000, by = 2000), limits = c(0, 12000)) + 
+  theme_wsj()+
+  theme(
+    axis.title = element_text(size = 14, face="bold"),
+    axis.text.x = element_text(angle = 0, size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.title = element_text(size = 0),
+    legend.text = element_text(size = 20 ),
+  ) +
+  scale_x_discrete(limits = c("MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISL")) +
+  scale_fill_discrete(breaks = c("MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISL"))
+
+# Title
+Borough_Title <- ggplot() +
+  ggtitle("Comparison of Shootings Across Boroughs (2006~2022)") +
+  labs(subtitle = 
+  " - Brooklyn: Nearly 11,000 shootings, over 40% of total
+ - Bronx: Close to 8,000 incidents, about 30% of total") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+plot_grid(Borough_Title, Borough, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;4.2 Comparison of Shootings Across Different Precints (2006'~2022')
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1
+Precinct <- ggplot(df5, aes(Precinct, fill = Borough)) +
+  geom_bar() +
+  ylab(" Total Shootings ") +
+  xlab(" Precincts ") +
+  scale_y_continuous(breaks = seq(0, 1500, by = 300), limits = c(0, 1600)) +
+  theme_wsj()+
+  theme(
+    axis.title = element_text(size = 14, face="bold"),
+    axis.text.x = element_text(angle = 45, size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.title = element_text(size = 0),
+    legend.text = element_text(size = 20 ),
+  ) +
+  scale_fill_discrete(breaks = c("MANHATTAN", "BRONX", "BROOKLYN", "QUEENS", "STATEN ISL"))
+
+# Title
+Precinct_Title <- ggplot() +
+  ggtitle("Comparison of Shootings Across Precincts (2006~2022)") +
+  labs(subtitle = 
+  " - Brooklyn precincts (73' and 75') lead in shooting numbers
+ - Bronx precincts consistently show high counts") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+plot_grid(Precinct_Title, Precinct, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;4.3 Comparison of Brooklyn and the Bronx by Different Years
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# BROOKLYN Plots
+plot_for_BROOKLYN <- function(year) {
+  df_year <- df5 %>% filter(Borough == "BROOKLYN" & Year == year)
+  
+  BL <- ggplot(df_year, aes(x = Longitude, y = Latitude)) +
+    geom_point(size=1, color="darkred") +
+    labs(title = paste("BROOKLYN(",year,")", sep = ""),
+         x = "Longitude",
+         y = "Latitude") +
+    theme_wsj() +
+    theme(
+      panel.grid.major = element_blank(),    # No gridlines
+      title = element_text(size = 14, face = "bold", color="darkred"),
+      legend.title = element_blank(),
+      axis.title = element_text(size = 10),
+      axis.text = element_text(size = 0),
+      axis.ticks = element_blank()
+    ) +
+    coord_fixed(ratio = 1.585/1, xlim = c(-74.00, -73.85), ylim = c(40.62, 40.72))
+  return(BL)
+}
+BL2006 <- plot_for_BROOKLYN(2006)
+BL2010 <- plot_for_BROOKLYN(2010)
+BL2014 <- plot_for_BROOKLYN(2014)
+BL2018 <- plot_for_BROOKLYN(2018)
+BL2022 <- plot_for_BROOKLYN(2022)
+
+# BRONX Plots
+plot_for_BRONX <- function(year) {
+  df_year <- df5 %>% filter(Borough == "BRONX" & Year == year)
+  
+  BR <- ggplot(df_year, aes(x = Longitude, y = Latitude)) +
+    geom_point(size=1, color="darkblue") +
+    labs(title = paste("BRONX(",year,")", sep = ""),
+         x = "Longitude",
+         y = "Latitude") +
+    theme_wsj() +
+    theme(
+      panel.grid.major = element_blank(),    # No gridlines
+      title = element_text(size = 14, face = "bold", color="darkblue"),
+      legend.title = element_blank(),
+      axis.title = element_text(size = 10),
+      axis.text = element_text(size = 0),
+      axis.ticks = element_blank()
+    ) +
+    coord_fixed(ratio = 1.585/1, xlim = c(-73.95, -73.80), ylim = c(40.8, 40.9))
+  return(BR)
+}
+BR2006 <- plot_for_BRONX(2006)
+BR2010 <- plot_for_BRONX(2010)
+BR2014 <- plot_for_BRONX(2014)
+BR2018 <- plot_for_BRONX(2018)
+BR2022 <- plot_for_BRONX(2022)
+
+BL_BR_Title <- ggplot() +
+  ggtitle("Comparison of Brooklyn and the Bronx by Different Years") +
+  labs(subtitle = 
+  " - Both Brooklyn and Bronx worsened in 2022 compared to 2018
+ - The Bronx even reached its peak in 2022 since 2006") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+BL_BR_Plots <- plot_grid(BL2006, BL2010, BL2014, BL2018, BL2022, 
+                           BR2006, BR2010, BR2014, BR2018, BR2022,
+                           ncol = 5, nrow = 2)
+plot_grid(BL_BR_Title, BL_BR_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;4.4 Comparing the Case Maps of 2006, 2019, and 2022
+</b></font></td></tr></table>
+
+#### Shooting Map 2006 ~ 2022:
+
+```{r}
+# location1
+interval <- df5
+map <- leaflet(width = "350px", height = "350px") %>%
+  addTiles(urlTemplate = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}') %>%
+  setView(lat = 40.73, lng = -73.95, zoom = 10)
+locationall <- map %>%
+  addCircleMarkers(data = interval, 
+                   lng = ~Longitude, lat = ~Latitude, 
+                   radius = 1,
+                   fillColor = "darkblue",
+                   fillOpacity = 1,
+                   stroke = FALSE)
+locationall
+```
+
+
+#### Shooting Map in 2006:
+
+```{r}
+# location1
+interval <- df5[df5$Year == 2006 & df5$Month >= 1 & df5$Month <= 12, ]
+map <- leaflet(width = "350px", height = "350px") %>%
+  addTiles(urlTemplate = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}') %>%
+  setView(lat = 40.73, lng = -73.95, zoom = 10)
+location2006 <- map %>%
+  addCircleMarkers(data = interval, 
+                   lng = ~Longitude, lat = ~Latitude, 
+                   radius = 1,
+                   fillColor = "darkblue",
+                   fillOpacity = 1,
+                   stroke = FALSE)
+location2006
+```
+
+#### Shooting Map in 2018:
+
+```{r}
+# location2
+interval <- df5[df5$Year == 2018 & df5$Month >= 1 & df5$Month <= 12, ]
+map <- leaflet(width = "350px", height = "350px") %>%
+  addTiles(urlTemplate = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}') %>%
+  setView(lat = 40.73, lng = -73.95, zoom = 10)
+location2018 <- map %>%
+  addCircleMarkers(data = interval, lat = ~Latitude, lng = ~Longitude,  
+                   radius = 1,
+                   fillColor = "darkblue",
+                   fillOpacity = 1,
+                   stroke = FALSE)
+location2018
+```
+
+#### Shooting Map in 2022:
+
+```{r}
+# location3
+interval <- df5[df5$Year == 2022 & df5$Month >= 1 & df5$Month <= 12, ]
+map <- leaflet(width = "350px", height = "350px") %>% 
+  addTiles(urlTemplate = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}') %>%
+  setView(lat = 40.73, lng = -73.95, zoom = 10)
+location2022 <- map %>%
+  addCircleMarkers(data = interval, lat = ~Latitude, lng = ~Longitude,  
+                   radius = 1,
+                   fillColor = "darkblue",
+                   fillOpacity = 1,
+                   stroke = FALSE)
+location2022
+```
+
+#### **Summary:**
+#### 1. 70% of shootings took place in Brooklyn and the Bronx, with the Bronx surpassing Brooklyn recently.
+#### 2. Shootings are highly concentrated in certain areas of Brooklyn, while they cover the entire region in the Bronx.
+#### 3. Other areas show relatively scattered incidents, but there has been an increasing trend in recent years.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;5. Suspects & Victims Analysis
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;5.1 Comparison of Perpetrators and Victims Across Gender Groups
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1
+df5_Perp_Sex <- df5[df5$Perp_Sex != "UNKNOWN", ] %>%
+  dplyr::group_by(Perp_Sex) %>%
+  dplyr::summarise(Counts = n()) %>%
+  dplyr::mutate(Percentage = Counts / sum(Counts))
+
+Perp_Sex <- ggplot(df5_Perp_Sex, aes(x = Perp_Sex, y = Counts, fill = Perp_Sex)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=scales::percent(Percentage, accuracy = 1), y=Counts), vjust=-0.5, size=5) +
+  labs(title = "Perpetrators (Excl.Unknown)",
+       x = "Perpetrators Gender Groups",
+       y = "Total Shootings") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none"
+    ) +
+  scale_x_discrete(limits = c("MALE", "FEMALE"))
+
+# Plot2
+df5_Vic_Sex <- df5[df5$Vic_Sex != "UNKNOWN", ] %>%
+  dplyr::group_by(Vic_Sex) %>%
+  dplyr::summarise(Counts = n()) %>%
+  dplyr::mutate(Percentage = Counts / sum(Counts))
+
+Vic_Sex <- ggplot(df5_Vic_Sex, aes(x = Vic_Sex, y = Counts, fill = Vic_Sex)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=scales::percent(Percentage, accuracy = 1), y=Counts), vjust=-0.5, size=5) +
+  labs(title = "Victims",
+       x = "Victims Gender Groups",
+       y = "Total Shootings") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none"
+    ) +
+  scale_x_discrete(limits = c("MALE", "FEMALE"))
+
+# Plot3
+Sex_df <- df5[df5$Perp_Sex != "UNKNOWN" & df5$Vic_Sex != "UNKNOWN", ]
+Sex_tab <- table(Sex_df$Perp_Sex, Sex_df$Vic_Sex)
+Sex_order <- c('MALE', 'FEMALE')
+Sex_tab <- Sex_tab[Sex_order, Sex_order]
+Sex_tab <- as.data.frame(as.table(Sex_tab))
+names(Sex_tab) <- c("Perp_Sex", "Vic_Sex", "Count")
+Sex_tab$Percentage <- Sex_tab$Count / sum(Sex_tab$Count)
+
+Perp_Sex_Vic_Sex <- ggplot(Sex_tab, aes(Perp_Sex, Vic_Sex, fill = Count)) +
+  geom_tile() +
+  geom_text(aes(label = paste(Count, "\n(", scales::percent(Percentage, accuracy = 1), ")", sep = "")), 
+            color = "black", size = 6) +
+  scale_fill_gradient(low = "beige", high = "red") +
+  labs(title = "Perpetrators vs. Victims",
+       x = "Perpetrators Gender Groups",
+       y = "Victims Gender Groups") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none",
+    panel.grid.major.y = element_blank()
+    )
+
+# Title
+Perp_Sex_Vic_Sex_Title <- ggplot() +
+  ggtitle("Comparison of Perpetrators and Victims Across Genders") +
+  labs(subtitle = 
+  " - Over 97% of Perpetrators and 90% of Victims are males
+ - Females were involved in approximately 13% of shootings") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+Perp_Sex_Vic_Sex_Plots <- plot_grid(Perp_Sex, Perp_Sex_Vic_Sex, Vic_Sex, nrow = 1, rel_widths = c(1, 1, 1))
+plot_grid(Perp_Sex_Vic_Sex_Title, Perp_Sex_Vic_Sex_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;5.2 Comparison of Perpetrators and Victims Across Race Groups
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1
+df5_Perp_Race <- df5[df5$Perp_Race != "UNKNOWN", ] %>%
+  dplyr::group_by(Perp_Race) %>%
+  dplyr::summarise(Counts = n()) %>%
+  dplyr::mutate(Percentage = Counts / sum(Counts))
+
+Perp_Race <- ggplot(df5_Perp_Race, aes(x = Perp_Race, y = Counts, fill = Perp_Race)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=scales::percent(Percentage, accuracy = 1), y=Counts), vjust=-0.5, size=5) +
+  labs(title = "Perpetrators (Excl.Unknown)",
+       x = "Perpetrators Race Groups",
+       y = "Total Shootings") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 15),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none"
+    ) +
+  scale_x_discrete(limits = c('ASIAN', 'BHISPANIC', 'BLACK', 'WHISPANIC', 'WHITE'))
+
+# Plot2
+df5_Vic_Race <- df5[df5$Vic_Race != "UNKNOWN", ] %>%
+  dplyr::group_by(Vic_Race) %>%
+  dplyr::summarise(Counts = n()) %>%
+  dplyr::mutate(Percentage = Counts / sum(Counts))
+
+Vic_Race <- ggplot(df5_Vic_Race, aes(x = Vic_Race, y = Counts, fill = Vic_Race)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=scales::percent(Percentage, accuracy = 1), y=Counts), vjust=-0.5, size=5) +
+  labs(title = "Victims",
+       x = "Victims Race Groups",
+       y = "Total Shootings") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none"
+    ) +
+  scale_x_discrete(limits = c('ASIAN', 'BHISPANIC', 'BLACK', 'WHISPANIC', 'WHITE'))
+
+# Plot3
+Race_df <- df5[df5$Perp_Race != "UNKNOWN" & df5$Vic_Race != "UNKNOWN", ]
+Race_tab <- table(Race_df$Perp_Race, Race_df$Vic_Race)
+Race_order <- c('ASIAN', 'BHISPANIC', 'BLACK', 'WHISPANIC', 'WHITE')
+Race_tab <- Race_tab[Race_order, Race_order]
+Race_tab <- as.data.frame(as.table(Race_tab))
+names(Race_tab) <- c("Perp_Race", "Vic_Race", "Count")
+Race_tab$Percentage <- Race_tab$Count / sum(Race_tab$Count)
+
+Perp_Race_Vic_Race <- ggplot(Race_tab, aes(Perp_Race, Vic_Race, fill = Count)) +
+  geom_tile() +
+  geom_text(aes(label = paste(Count, "\n(", scales::percent(Percentage, accuracy = 1), ")", sep = "")), 
+            color = "black", size = 5) +
+  scale_fill_gradient(low = "beige", high = "red") +
+  labs(title = "Perpetrators vs. Victims",
+       x = "Perpetrators Race Groups",
+       y = "Victims Race Groups") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 11, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none",
+    panel.grid.major.y = element_blank()
+  )
+
+# Title
+Perp_Race_Vic_Race_Title <- ggplot() +
+  ggtitle("Comparison of Perpetrators and Victims Across Race Groups") +
+  labs(subtitle = 
+  " - Black takes up over 70% of shootings in both Perps and Vics
+ - Most of the remaining shootings involved Hispanic") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+Perp_Race_Vic_Race_Plots <- plot_grid(Perp_Race, Perp_Race_Vic_Race, Vic_Race, nrow = 1, rel_widths = c(1, 1.2, 1))
+plot_grid(Perp_Race_Vic_Race_Title, Perp_Race_Vic_Race_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;5.3 Comparison of Perpetrators and Victims Across Age Groups
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1
+df5_Perp_Age <- df5[df5$Perp_Age != "UNKNOWN", ] %>%
+  dplyr::group_by(Perp_Age) %>%
+  dplyr::summarise(Counts = n()) %>%
+  dplyr::mutate(Percentage = Counts / sum(Counts))
+
+Perp_Age <- ggplot(df5_Perp_Age, aes(x = Perp_Age, y = Counts, fill = Perp_Age)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=scales::percent(Percentage, accuracy = 1), y=Counts), vjust=-0.5, size=5) +
+  labs(title = "Perpetrators (Excl.Unknown)",
+       x = "Perpetrators Age Groups",
+       y = "Total Shootings") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none"
+    )
+
+# Plot2
+df5_Vic_Age <- df5[df5$Vic_Age != "UNKNOWN", ] %>%
+  dplyr::group_by(Vic_Age) %>%
+  dplyr::summarise(Counts = n()) %>%
+  dplyr::mutate(Percentage = Counts / sum(Counts))
+
+Vic_Age <- ggplot(df5_Vic_Age, aes(x = Vic_Age, y = Counts, fill = Vic_Age)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label=scales::percent(Percentage, accuracy = 1), y=Counts), vjust=-0.5, size=5) +
+  labs(title = "Victims",
+       x = "Victims Age Groups",
+       y = "Total Shootings") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 15),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none"
+    )
+
+# Plot3
+Age_df <- df5[df5$Perp_Age != "UNKNOWN" & df5$Vic_Age != "UNKNOWN", ]
+Age_tab <- table(Age_df$Perp_Age, Age_df$Vic_Age)
+Age_order <- c("<18", "18-24", "25-44", "45-64", "65+")
+Age_tab <- Age_tab[Age_order, Age_order]
+Age_tab <- as.data.frame(as.table(Age_tab))
+names(Age_tab) <- c("Perp_Age", "Vic_Age", "Count")
+Age_tab$Percentage <- Age_tab$Count / sum(Age_tab$Count)
+
+Perp_Age_Vic_Age <- ggplot(Age_tab, aes(Perp_Age, Vic_Age, fill = Count)) +
+  geom_tile() +
+  geom_text(aes(label = paste(Count, "\n(", scales::percent(Percentage, accuracy = 1), ")", sep = "")), 
+            color = "black", size = 5) +
+  scale_fill_gradient(low = "beige", high = "red") +
+  labs(title = "Perpetrators vs. Victims",
+       x = "Perpetrators Age Groups",
+       y = "Victims Age Groups") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 16),
+    axis.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    legend.position = "none",
+    panel.grid.major.y = element_blank()
+    )
+
+# Title
+Perp_Age_Vic_Age_Title <- ggplot() +
+  ggtitle("Comparison of Perpetrators and Victims Across Age Groups") +
+  labs(subtitle = 
+  " - '18-24' and '25-44' groups contribute to 80% of shootings
+ - Age group <18 is involved in more shootings than the >45 groups") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+Perp_Age_Vic_Age_Plots <- plot_grid(Perp_Age, Perp_Age_Vic_Age, Vic_Age, nrow = 1, rel_widths = c(1, 1.2, 1))
+plot_grid(Perp_Age_Vic_Age_Title, Perp_Age_Vic_Age_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;5.4 Comparison of Shooting Locations by Years (Age < 18)
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# BROOKLYN Plots
+plot_for_BROOKLYN <- function(year) {
+  df_year <- df5 %>% filter(Borough == "BROOKLYN" & Year == year) %>% filter(Perp_Age == "<18")
+  
+  BL <- ggplot(df_year, aes(x = Longitude, y = Latitude)) +
+    geom_point(size=1, color="darkred") +
+    labs(title = paste("BROOKLYN(",year,")", sep = ""),
+         x = "Longitude",
+         y = "Latitude") +
+    theme_wsj() +
+    theme(
+      panel.grid.major = element_blank(),    # No gridlines
+      title = element_text(size = 14, face = "bold", color="darkred"),
+      legend.title = element_blank(),
+      axis.title = element_text(size = 10),
+      axis.text = element_text(size = 0),
+      axis.ticks = element_blank()
+    ) +
+    coord_fixed(ratio = 1.585/1, xlim = c(-74.00, -73.85), ylim = c(40.62, 40.72))
+  return(BL)
+}
+BL2006 <- plot_for_BROOKLYN(2006)
+BL2010 <- plot_for_BROOKLYN(2010)
+BL2014 <- plot_for_BROOKLYN(2014)
+BL2018 <- plot_for_BROOKLYN(2018)
+BL2022 <- plot_for_BROOKLYN(2022)
+
+# BRONX Plots
+plot_for_BRONX <- function(year) {
+  df_year <- df5 %>% filter(Borough == "BRONX" & Year == year) %>% filter(Perp_Age == "<18")
+  
+  BR <- ggplot(df_year, aes(x = Longitude, y = Latitude)) +
+    geom_point(size=1, color="darkblue") +
+    labs(title = paste("BRONX(",year,")", sep = ""),
+         x = "Longitude",
+         y = "Latitude") +
+    theme_wsj() +
+    theme(
+      panel.grid.major = element_blank(),    # No gridlines
+      title = element_text(size = 14, face = "bold", color="darkblue"),
+      legend.title = element_blank(),
+      axis.title = element_text(size = 10),
+      axis.text = element_text(size = 0),
+      axis.ticks = element_blank()
+    ) +
+    coord_fixed(ratio = 1.585/1, xlim = c(-73.95, -73.80), ylim = c(40.8, 40.9))
+  return(BR)
+}
+BR2006 <- plot_for_BRONX(2006)
+BR2010 <- plot_for_BRONX(2010)
+BR2014 <- plot_for_BRONX(2014)
+BR2018 <- plot_for_BRONX(2018)
+BR2022 <- plot_for_BRONX(2022)
+
+BL_BR_Title <- ggplot() +
+  ggtitle("Comparison of Shooting Locations by Years (Age < 18)") +
+  labs(subtitle = 
+  " - Shootings by teenagers in Brooklyn are more scattered
+ - While those in the Bronx are more concentrated") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+BL_BR_Plots <- plot_grid(BL2006, BL2010, BL2014, BL2018, BL2022, 
+                           BR2006, BR2010, BR2014, BR2018, BR2022,
+                           ncol = 5, nrow = 2)
+plot_grid(BL_BR_Title, BL_BR_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+#### **Summary:**
+#### 1. The individuals related to the cases share noticeable similarities in terms of Gender, Race, and Age groups. 
+#### 2. Victims of the cases are not randomly distributed but rather part of organized patterns.
+#### 3. There is a significant trend toward involving younger individuals, even including a great number of teenagers.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;6. Time Series Analysis and Forecasting
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;6.1 Time Series Monitor by Year & Month
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+# Plot1
+df6_YearMonth <- df5 %>%
+  mutate(Date = mdy(Date),
+         YearMonth = format(Date, "%Y-%m")) %>%
+  group_by(YearMonth) %>%
+  summarise(Counts = n())
+
+YearMonth <- ggplot(df6_YearMonth, aes(YearMonth, Counts, group = 1)) +
+  geom_line(linewidth = 2, color = "darkred") +
+  geom_point(size = 3, shape = 15, color = "darkred") +
+  labs(x= " Year & Month " ,
+       y = " Total Shootings ") +
+  scale_x_discrete(breaks = df6_YearMonth$YearMonth[seq(1, nrow(df6_YearMonth), 6)]) +
+  scale_y_continuous(breaks = seq(0, 350, by = 50), limits = c(0, 350)) +
+  theme_wsj() +
+  theme(
+    axis.title = element_text(size = 14, face="bold"),
+    axis.text.x = element_text(angle = 45, size = 12, vjust = 0.5),
+    axis.text.y = element_text(size = 12)
+  )
+
+# Title
+YearMonth_Title <- ggplot() +
+  ggtitle("Time Series Monitor by Year & Month (2006~2022)") +
+  labs(subtitle = 
+  " - Overall trend is lower in the middle and higher on the sides
+ - There is a noticeable seasonal fluctuation within each year") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+plot_grid(YearMonth_Title, YearMonth, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;6.2 Time Series Decomposition
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16, message=FALSE, warning=FALSE}
+ts_data <- ts(df6_YearMonth$Counts, frequency = 12, start = c(2006, 1))
+decompose <- decompose(ts_data, type = "additive")
+
+decomposition_table <- data.frame(
+  YearMonth = df6_YearMonth,
+  Trend = decompose$trend,
+  Seasonal = decompose$seasonal,
+  Residual = decompose$random)
+
+# Plot1
+Trend <- ggplot(decomposition_table, aes(YearMonth.YearMonth, Trend, group = 1)) +
+  geom_line(linewidth = 1.5, color = "darkred") +
+  geom_point(size = 3, shape = 15, color = "darkred") +
+  labs(
+      y = " Trend ") +
+  scale_x_discrete(breaks = df6_YearMonth$YearMonth[seq(1, nrow(df6_YearMonth), 6)]) +
+  scale_y_continuous(breaks = seq(0, 200, by = 50), limits = c(0, 200)) +
+  theme_wsj() +
+  theme(
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 11, angle = 45, vjust = 0.5),
+        axis.title.y = element_text(size = 20, face = "bold"),
+  )
+
+# Plot2
+Seasonal <- ggplot(decomposition_table, aes(YearMonth.YearMonth, Seasonal, group = 1)) +
+  geom_line(linewidth = 1.5, color = "darkred") +
+  geom_point(size = 3, shape = 15, color = "darkred") +
+  labs(
+      y = " Seasonal ") +
+  scale_x_discrete(breaks = df6_YearMonth$YearMonth[seq(1, nrow(df6_YearMonth), 6)]) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 30), limits = c(-65, 65)) +
+  theme_wsj() +
+  theme(
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 11, angle = 45, vjust = 0.5),
+        axis.title.y = element_text(size = 20, face = "bold"),
+  )
+
+# Plot3
+Residual <- ggplot(decomposition_table, aes(YearMonth.YearMonth, Residual, group = 1)) +
+  geom_line(linewidth = 1.5, color = "darkred") +
+  geom_point(size = 3, shape = 15, color = "darkred") +
+  labs(
+       y = " Residual ") +
+  scale_x_discrete(breaks = df6_YearMonth$YearMonth[seq(1, nrow(df6_YearMonth), 6)]) +
+  scale_y_continuous(breaks = seq(-100, 100, by = 50), limits = c(-80, +120)) +
+  theme_wsj() +
+  theme(
+        axis.text.y = element_text(size = 12),
+        axis.text.x = element_text(size = 11, angle = 45, vjust = 0.5),
+        axis.title.y = element_text(size = 20, face = "bold"),
+  )
+
+# Title
+Decomposition_Title <- ggplot() +
+  ggtitle("Time Series Decomposition") +
+  labs(subtitle = 
+  " - Monthly counts decompose into Trend, Seasonal, and Residual
+ - High residual suggests randomness or external influence") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+Decomposition_Plots <- plot_grid(Trend, Seasonal, Residual, ncol = 1, rel_widths = c(1, 1, 1))
+plot_grid(Decomposition_Title, Decomposition_Plots, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+decompose <- decompose(ts_data, type = "additive")
+reg<-lm(decompose$trend~time(ts_data))
+#summary(reg)
+#par(mfrow=c(2,2))
+#plot(reg,which=c(1:4))
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;6.3 Time Series Forecasting
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16, warning=FALSE}
+model <- auto.arima(ts_data)
+forecast <- forecast(model, h = 36)
+forecast_df <- forecast %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "YearMonth") %>%
+  rename(
+    L95 = `Lo 95`,
+    H95 = `Hi 95`) %>%
+  mutate(
+    YearMonth = mdy(YearMonth) %>% format("%Y-%m")
+  )
+combined_df <- bind_rows(df6_YearMonth, forecast_df)
+```
+
+```{r fig.height=9, fig.width=16}
+# Adjusting the data for the plot
+combined_df2 <- combined_df %>%
+  mutate(YearMonth = paste0(YearMonth, "-01"),  # change it back
+         YearMonth = as.Date(YearMonth))
+combined_df2 <- combined_df2 %>%
+  mutate(L95 = ifelse(L95 < 0, 0, L95))
+
+# Plot1
+Forecast <- ggplot() +
+  geom_ribbon(data = combined_df2 %>% filter(!is.na(L95) & !is.na(H95)),
+              aes(x = YearMonth, ymin = L95, ymax = H95), alpha = 0.8, fill = "grey") +
+  geom_line(data = combined_df2 %>% filter(!is.na(`Point Forecast`)),
+            aes(x = YearMonth, y = `Point Forecast`, group = 1), linewidth = 2, color = "darkred") +
+  labs(y = " Total Shootings ") +
+  scale_x_date(breaks = seq(as.Date("2023-01-01"), as.Date("2025-12-01"), by = "1 month"), 
+             date_labels = "%Y-%m", 
+             limits = c(as.Date("2023-01-01"), as.Date("2025-12-01"))) +
+  scale_y_continuous(breaks = seq(0, 350, by = 50), limits = c(-10, 350)) +
+  theme_wsj() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, vjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold")
+  )
+
+# Title
+Forecast_Title <- ggplot() +
+  ggtitle("Time Series Forecasting for 2023 to 2025 Using ARIMA") +
+  labs(subtitle = 
+         " - The average trend will stay consistent with the level of 2022
+ - The range of fluctuations could reach the peak in 2020") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+plot_grid(Forecast_Title, Forecast, ncol = 1, rel_heights = c(0.25, 1))
+
+```
+
+```{r fig.height=9, fig.width=16, warning=FALSE}
+# Plot1
+Forecast_All <- ggplot() +
+  geom_ribbon(data = combined_df2 %>% filter(!is.na(L95) & !is.na(H95)),
+            aes(x = YearMonth, ymin = L95, ymax = H95), alpha = 0.8, fill = "grey") +
+  geom_line(data = combined_df2 %>% filter(!is.na(Counts)),
+            aes(x = YearMonth, y = Counts, group = 1), linewidth = 2, color = "black") +
+  geom_line(data = combined_df2 %>% filter(!is.na(`Point Forecast`)),
+            aes(x = YearMonth, y = `Point Forecast`, group = 1), linewidth = 2, color = "darkred") +
+  labs(
+       y = " Total Shootings ") +
+  scale_x_date(breaks = seq(as.Date("2006-07-01"), as.Date("2025-07-01"), by = "1 year"), date_labels = "%Y") +
+  scale_y_continuous(breaks = seq(0, 350, by = 50), limits = c(0, 350)) +
+  theme_wsj() +
+  theme(
+      axis.text = element_text(size = 12),
+      axis.text.x = element_text(angle = 0, vjust = 0.5),
+      axis.title = element_text(size = 14, face = "bold")
+  )
+
+# Title
+Forecast_All_Title <- ggplot() +
+  ggtitle("Time Series Forecasting for the Next 3 Years Using ARIMA") +
+  labs(subtitle = 
+  " - The expected trend for the next three years will be similar
+ - June and July of each year are anticipated to be the peak periods") +
+  theme_wsj() +
+  theme(plot.title = element_text(size = 32, face="bold", vjust = -1, color = "brown"),
+        plot.subtitle = element_text(size = 28, vjust = -2, color = "red"))
+
+# Combine
+options(repr.plot.width = 16, repr.plot.height = 9)
+plot_grid(Forecast_All_Title, Forecast_All, ncol = 1, rel_heights = c(0.25, 1))
+```
+
+#### **Summary:**
+#### 1. Monthly counts show clear time-series features , decomposable into trend, seasonal, and residual elements.
+#### 2. Through ARIMA forecasting, the monthly case counts for the next 3 years are likely to remain current level.
+#### 3. In cases of extreme anomalies, the number of cases could potentially reach the peak observed in 2020.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;7. Conclusion
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;7.1 Report Bias
+</b></font></td></tr></table>
+
+#### **Bias in Data Source:**
+#### Geographical and shooting incidents exhibit clear concentration in specific areas and demographics, suggesting potential bias in NYPD data recording that overly focuses on particular criminal behaviors. Before delving further into analysis, it's crucial to validate data sources to ensure that analysis is not unduly affected by data bias.
+#### **Bias in Data Analysis:**
+#### During the analysis process, it's easy to attribute shooting incidents to specific demographics, overlooking the underlying data correlations and overly focusing on individuals rather than other factors. In this analysis, we strive to utilize more dimensions and explore intrinsic correlations within cases, rather than solely concentrating on perpetrator profiles.
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;7.2 Report Summary
+</b></font></td></tr></table>
+
+#### 1. Through Timeline Trend Analysis, we explored the temporal features of case distribution and found significant peaks during summer, weekends, and midnight.
+#### 2. Through Geographical Distribution Analysis, we investigated the spatial patterns of case distribution, revealing notable shooting clusters in Brooklyn and the Bronx.
+#### 3. Through Suspects & Victims Analysis, we examined the profile of individuals involved in the cases, identifying distinct perpetrator characteristics and a trend towards involving younger individuals.
+#### 4. Through Time Series Analysis and Forecasting, we identified evident seasonal patterns and forecasted shooting counts for the next 3 years.
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;7.3 Further Action
+</b></font></td></tr></table>
+
+#### 1. By combining geographical and temporal distribution data, the NYPD can adjust patrol schedules and even fund allocation to control and reduce the number of shooting incidents.
+#### 2. By deeply investigating the correlation between perpetrators' profile data and other indicators, the NYPD can conduct comprehensive inquiries into organized crime, thereby reducing the frequency of shooting incidents and minimizing the involvement of teenagers.
+#### 3. Through time series analysis and external environmental variables, during significant events like elections, preventative measures can be taken to mitigate the risk of potential large-scale shooting incidents.
+
+```{r}
+sessionInfo()
+```
+
+
