@@ -1,0 +1,304 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="10"><div style="text-align: center;"><b>
+CANADA COVID-19 Data Analysis
+</b></div></font></td></tr></table>
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;1. Introduction
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.1 Project Objective
+</b></font></td></tr></table>
+
+#### 1. Analyze Canadian COVID-19 data using the dataset from Johns Hopkins University.
+#### 2. Compare the outcomes of COVID-19 responses using multiple visualization techniques.
+#### 3. Employ cluster analysis to uncover inside relationship among different provinces.
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.2 Data Source
+</b></font></td></tr></table>
+
+#### 1. The data comes from the Johns Hopkins University COVID-19 dataset.
+#### 2. JHU's COVID-19 dataset is globally recognized as one of the most comprehensive sources.
+#### 3. The dataset includes not only national-level data but also data at the state or provincial level and other detailed breakdowns.
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.3 Importing Packages
+</b></font></td></tr></table>
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(cowplot)
+library(ggthemes)
+library(forecast)
+library(knitr)
+library(data.table)
+library(leaflet)
+library(tinytex)
+library(kableExtra)
+library(gridExtra)
+library(dplyr)
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;1.4 Importing Dataset
+</b></font></td></tr></table>
+
+```{r message=FALSE, warning=FALSE}
+url1 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+url2 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+
+confirmed <- read_csv(url1)
+deaths <- read_csv(url2)
+```
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;2. Data Cleaning and Preprocessing
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.1 Checking Data
+</b></font></td></tr></table>
+
+```{r message=FALSE, warning=FALSE}
+head(confirmed)
+```
+
+```{r message=FALSE, warning=FALSE}
+head(deaths)
+```
+
+```{r message=FALSE, warning=FALSE}
+dim(confirmed)
+dim(deaths)
+```
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.2 Filtering Observation
+</b></font></td></tr></table>
+
+```{r}
+confirmed_canada <- confirmed %>% 
+  filter(`Country/Region` == "Canada")
+
+deaths_canada <- deaths %>% 
+  filter(`Country/Region` == "Canada")
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;2.3 Remove missing value 
+</b></font></td></tr></table>
+
+```{r}
+confirmed_cleaned <- confirmed_canada %>%
+  filter(!(Long == 0))
+deaths_cleaned <- deaths_canada %>%
+  filter(!(Long == 0))
+```
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;3. Data Visualization
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.1 Total COVID-19 Confirmed Cases by Province
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+latest_date <- tail(names(confirmed_cleaned), 1)
+confirmed_latest <- confirmed_cleaned %>% 
+  select(`Province/State`, `Country/Region`, !!latest_date) %>%
+  rename(Total_Cases = !!latest_date)
+
+ggplot(confirmed_latest, aes(y = reorder(`Province/State`, Total_Cases), x = Total_Cases)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = paste("Total COVID-19 Confirmed Cases by Province", latest_date),
+       y = "Province",
+       x = "Total Cases (in millions)") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 24),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    ) +
+  scale_x_continuous(labels = function(x) x / 1e6, expand = c(0, 0))
+```
+
+- Top3: Ontario, Quebec, Alberta
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.2 Total COVID-19 Death Cases by Province
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+latest_date_death <- tail(names(deaths_cleaned), 1)
+deaths_latest <- deaths_cleaned %>% 
+  select(`Province/State`, `Country/Region`, !!latest_date_death) %>%
+  rename(Total_Deaths = !!latest_date_death)
+
+ggplot(deaths_latest, aes(y = reorder(`Province/State`, Total_Deaths), x = Total_Deaths)) +
+  geom_bar(stat = "identity", fill = "darkred") +
+  labs(title = paste("Total COVID-19 Death Cases by Province"),
+       y = "Province",
+       x = "Total Deaths (in thousands)") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 24),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    ) +
+  scale_x_continuous(labels = function(x) x / 1e3, expand = c(0, 0))
+```
+
+- Top3: Quebec, Ontario, Alberta
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.3 COVID-19 Fatality Rate by Province
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+combined_data <- left_join(confirmed_latest, deaths_latest, by = c("Province/State", "Country/Region"))
+combined_data$Mortality_Rate <- (combined_data$Total_Deaths / combined_data$Total_Cases) * 100
+mortality_data <- combined_data %>% 
+  select(`Province/State`, Mortality_Rate) %>%
+  arrange(desc(Mortality_Rate))
+
+ggplot(mortality_data, aes(y = reorder(`Province/State`, Mortality_Rate), x = Mortality_Rate)) +
+  geom_bar(stat = "identity", fill = "darkorange") +
+  labs(title = "COVID-19 Mortality Rate by Province",
+       y = "Province",
+       x = "Mortality Rate (%)") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 24),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+    ) +
+  scale_x_continuous(expand = c(0, 0))
+```
+
+- Top3: Manitoba, Quebec, British Columbia
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.4 COVID-19 Infection Rate by Province
+</b></font></td></tr></table>
+
+2021 Population Data Source:
+https://www12.statcan.gc.ca/census-recensement/2021/dp-pd/prof/details/download-te
+
+```{r fig.height=9, fig.width=16}
+population_data <- data.frame(
+  "Province/State" = c("Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba", "Saskatchewan", "Nova Scotia", "New Brunswick", "Newfoundland and Labrador", "Prince Edward Island", "Northwest Territories", "Yukon", "Nunavut"),
+  Population_2021 = c(14223942, 8501833, 5000879, 4262635, 1342153, 1132505, 969383, 775610, 510550, 154331, 41070, 40232, 36858)
+)
+names(confirmed_latest)[names(confirmed_latest) == "Province/State"] <- "Province.State"
+
+merged_data <- left_join(confirmed_latest, population_data, by = "Province.State")
+merged_data$Infection_Rate <- (merged_data$Total_Cases / merged_data$Population_2021) * 100
+
+ggplot(merged_data, aes(y = reorder(Province.State, Infection_Rate), x = Infection_Rate)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "COVID-19 Infection Rate by Province",
+       y = "Province",
+       x = "Infection Rate (%)") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 24),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+  ) +
+  scale_x_continuous(expand = c(0, 0))
+
+```
+
+- Top3: Prince Edward Island, Northwest Territories, Quebec
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.5 Fatality Rate vs Infection Rate by Province
+</b></font></td></tr></table>
+
+```{r fig.height=9, fig.width=16}
+names(mortality_data)[names(mortality_data) == "Province/State"] <- "Province.State"
+final_data <- left_join(merged_data, mortality_data, by = "Province.State")
+
+ggplot(final_data, aes(x = Infection_Rate, y = Mortality_Rate, label = Province.State)) + 
+  geom_point(color = "steelblue", size = 10) + 
+  geom_text(aes(label = Province.State), vjust=-1, hjust=0.5, size=5) +
+  labs(title = "Mortality Rate vs Infection Rate by Province",
+       y = "Mortality Rate (%)",
+       x = "Infection Rate (%)") +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 24),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+  )
+```
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;3.6 Cluster Analysis
+</b></font></td></tr></table>
+
+```{r}
+data_for_clustering <- final_data %>% 
+  select(Infection_Rate, Mortality_Rate)
+
+scaled_data <- scale(data_for_clustering)
+wss <- sapply(1:10, function(k){
+  kmeans(scaled_data, centers=k)$tot.withinss
+})
+
+plot(1:10, wss, type="b", pch=19, frame=FALSE, 
+     xlab="Number of clusters K", 
+     ylab="Total within-clusters sum of squares")
+```
+
+```{r fig.height=9, fig.width=16}
+set.seed(123)
+kmeans_result <- kmeans(scaled_data, centers=3)
+
+final_data$cluster <- factor(kmeans_result$cluster)
+ggplot(final_data, aes(x=Infection_Rate, y=Mortality_Rate, color=cluster)) + 
+  geom_point(size = 10) + 
+  geom_text(aes(label=Province.State), vjust=-1.3, hjust=0.5, size=5) +
+  labs(title="K-means clustering of Provinces (K=3)",
+       x="Infection Rate", y="Mortality Rate") +
+  scale_color_manual(values=c("red", "blue", "green")) +
+  theme_wsj() +
+  theme(
+    title = element_text(size = 24),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+- After cluster analysis, Ontario, Quebec, and British Columbia are grouped together.
+- Economic development level is negative related to the mortality rate.
+
+<table style="width: 900px"><tr><td bgcolor="darkred"><font color="white" size="6"><b>
+&nbsp;&nbsp;4. Conclusion
+</b></font></td></tr></table>
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;4.1 Data Bias
+</b></font></td></tr></table>
+
+#### 1. Objective bias: The data for Covid_19 depends on the local medical standards. If medical resources cannot keep up, the number of infections might not be recorded, potentially leading to a relative decrease. On the other hand, if there are robust medical resources, the number of infections might relatively increase.
+
+#### 2. Subjective bias: The data for Covid_19 comes from manual counting, and it might be adjusted for various reasons. Therefore, the data from different countries or even different provinces may not necessarily be directly comparable.
+
+<table style="width: 900px"><tr><td bgcolor="wheat"><font color="brown" size="5"><b>
+&nbsp;&nbsp;4.2 Further Analysis
+</b></font></td></tr></table>
+
+#### This analysis is suitable for various countries to evaluate the performance of their internal provinces or states.
+
